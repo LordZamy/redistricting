@@ -4,10 +4,10 @@ import random
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
-
+from plotting import plot_graph
 
 class Chain():
-    def __init__(self, graph, q, num_colors=4, R=2):
+    def __init__(self, graph, q, num_colors=4, R=1):
         self.current_graph = graph
         self.prob_keep_edge = q
         self.num_colors = num_colors
@@ -49,11 +49,13 @@ class Chain():
     """
     Assumption: each component in `components` contains vertices of the same color
     """
-    def boundary_connected_components(self, components):
-        colors = nx.get_node_attributes(self.current_graph, 'color')
+    def boundary_connected_components(self, components, graph=None):
+        if graph == None:
+            graph = self.current_graph
+        colors = nx.get_node_attributes(graph, 'color')
         boundary_components = []
         for component in components:
-            boundary_nodes = nx.algorithms.boundary.node_boundary(self.current_graph, component)
+            boundary_nodes = nx.algorithms.boundary.node_boundary(graph, component)
             # get an arbitrary element from component and use it to find the color of the component
             component_node = next(iter(component))
             for node in boundary_nodes:
@@ -64,18 +66,19 @@ class Chain():
         return boundary_components
 
     def non_adjacent_boundary_connected_components(self, boundary_components):
-        non_adjacent_components = []
-        for component in boundary_components:
-            if random.random() < 0.5:
+        while True:
+            non_adjacent_components = np.random.choice(boundary_components, self.R)
+            redo = False
+            for component in non_adjacent_components:
+                other_components = [x for x in non_adjacent_components if x != component]
                 # check if non-adjacent to currently chosen components
-                nodes_of_chosen_components = set().union(*non_adjacent_components)
+                nodes_of_chosen_components = set().union(*other_components)
                 adjacent_nodes = nx.algorithms.boundary.node_boundary(self.current_graph, component, nodes_of_chosen_components)
-                if len(adjacent_nodes) is 0:
-                    non_adjacent_components.append(component)
-
-            if len(non_adjacent_components) >= self.R:
-                # stop after selecting at most R components
+                if len(adjacent_nodes) is not 0:
+                    redo = True
+            if not redo:
                 break
+
 
         # TODO: add special case for when no components are chosen
         return non_adjacent_components
@@ -100,6 +103,17 @@ class Chain():
 
         return swapped_colorings
 
+    def count_swendson_wang_cut(self, adjacency_graph, VCP):
+        edges = adjacency_graph.edges()
+        edge_count = 0
+        for u, v in edges:
+            for component in VCP:
+                if (u in component and v not in component) or (u not in component and v in component):
+                    edge_count += 1
+                    break
+
+        return edge_count
+
     """
     If a swap is valid, returns the post-swap graph. Else returns None.
     """
@@ -108,10 +122,20 @@ class Chain():
         graph = self.current_graph.copy()
         nx.set_node_attributes(graph, values, 'color')
         adjacency_graph = self.create_adjacency_graph(graph)
-        if nx.algorithms.components.number_connected_components(adjacency_graph) == self.num_colors:
+        colors = nx.get_node_attributes(adjacency_graph, 'color')
+        if nx.algorithms.components.number_connected_components(adjacency_graph) == self.num_colors \
+            and len(np.unique(list(colors.values()))) == self.num_colors:
             return graph
         return None
 
+    """
+    Returns a copy of the given graph with new colors applied to it.
+    """
+    def update_colors(self, graph, swapped_colorings):
+        values = {node: color for component, color in swapped_colorings for node in component}
+        new_graph = graph.copy()
+        nx.set_node_attributes(new_graph, values, 'color')
+        return new_graph
 
     """
     Accepts the swap and updates `current_graph`
@@ -124,10 +148,11 @@ class Chain():
         adjacency_graph = self.create_adjacency_graph(self.current_graph)
         self.randomly_remove_edges(adjacency_graph)
         # draw_graph(adjacency_graph, pos=lattice_layout(adjacency_graph, 50))
+        # draw_graph_online(adjacency_graph, pos=lattice_layout(lattice, 50))
         CP = self.connected_components(adjacency_graph)
         # print('CP', len(CP), [len(v) for v in CP])
+        BCP = self.boundary_connected_components(CP)
         while True:
-            BCP = self.boundary_connected_components(CP)
             # print('BCP', len(BCP), [len(v) for v in BCP])
             VCP = self.non_adjacent_boundary_connected_components(BCP)
             # print('VCP', len(VCP), [len(v) for v in VCP])
@@ -135,8 +160,28 @@ class Chain():
             swapped_graph = self.verify_swap(swapped_colorings)
             if swapped_graph != None:
                 break
-        # self.accept_proposal(swapped_colorings)
-        self.current_graph = swapped_graph
+
+        # step 5 computations
+
+        # mutated the original adjacency_graph, so creating a new one
+        original_adjacency_graph = self.create_adjacency_graph(self.current_graph)
+        old_cut_count = self.count_swendson_wang_cut(original_adjacency_graph, VCP)
+        swapped_adjacency_graph = self.create_adjacency_graph(swapped_graph)
+        swapped_cut_count = self.count_swendson_wang_cut(swapped_adjacency_graph, VCP)
+        swapped_components = self.connected_components(swapped_adjacency_graph)
+        swapped_boundary_components = self.boundary_connected_components(CP, swapped_graph)
+        # print(len(BCP), len(swapped_boundary_components))
+
+        boundary_total = (float(len(BCP)) / len(swapped_boundary_components)) ** self.R
+        prob_remove_edge = 1 - self.prob_keep_edge
+        adjacent_total = float(prob_remove_edge ** swapped_cut_count) / (prob_remove_edge ** old_cut_count)
+        print(swapped_cut_count, old_cut_count)
+        accept_prob = min(1, boundary_total * adjacent_total)
+        print(accept_prob)
+
+        # print(boundary_total, adjacent_total)
+        if random.random() < accept_prob:
+            self.current_graph = swapped_graph
 
 def four_color_lattice(N):
     lattice = nx.generators.lattice.grid_2d_graph(N, N, periodic=True)
@@ -167,12 +212,16 @@ def lattice_layout(graph, N):
     return {(u, v): (u / float(N), v / float(N)) for u, v in nodes}
 
 lattice = four_color_lattice(50)
-redistricting_chain = Chain(lattice, 0.7)
+redistricting_chain = Chain(lattice, 0.25)
 
 # turn on matplotlib interactive mode
 plt.ion()
 
-for i in range(100):
+num_iterations = 1000
+for i in range(num_iterations):
     print("Performing iteration {}.".format(i + 1))
     redistricting_chain.simulate_step()
     draw_graph_online(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50))
+
+# save figure to disk at the end
+plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations)
