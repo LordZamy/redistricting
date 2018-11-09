@@ -5,6 +5,11 @@ import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
 from plotting import plot_graph
+from json_parser import parse_graph
+from shape_parser import parse_shape
+
+# change figure size
+plt.rcParams["figure.figsize"] = (8, 7)
 
 class Chain():
     def __init__(self, graph, q, num_colors=4, R=1):
@@ -14,6 +19,25 @@ class Chain():
         # constant that determines the number of non-adjacent boundary components
         # selected during step 3 of the algorithm
         self.R = R
+
+        # confirm initial graph is correct
+        adjacency_graph = self.create_adjacency_graph(graph)
+        # draw_graph(adjacency_graph, georgia_layout, cmap='tab20')
+        colors = nx.get_node_attributes(graph, 'color')
+        unique_colors = len(np.unique(list(colors.values())))
+        num_components = nx.algorithms.components.number_connected_components(adjacency_graph)
+        print([len(c) for c in self.connected_components(adjacency_graph)])
+        try:
+            assert num_components == num_colors \
+                and unique_colors == num_colors, \
+                'Partitions of graph are not contiguous! Components: {}, Unique colors: {}, Num colors: {}'.format(num_components, unique_colors, num_colors)
+        except AssertionError:
+            # this is a shitty solution which works for the georgia graph
+            components = self.connected_components(adjacency_graph)
+            lengths = [len(c) for c in components]
+            min_index = np.argmin(lengths)
+            component_to_drop = components[min_index]
+            self.current_graph.remove_nodes_from(component_to_drop)
 
     """
     Removes edges between color partitions and returns a new adjacency graph.
@@ -149,6 +173,8 @@ class Chain():
         self.randomly_remove_edges(adjacency_graph)
         # draw_graph(adjacency_graph, pos=lattice_layout(adjacency_graph, 50))
         # draw_graph_online(adjacency_graph, pos=lattice_layout(lattice, 50))
+        # global georgia_layout
+        # draw_graph_online(adjacency_graph, pos=georgia_layout)
         CP = self.connected_components(adjacency_graph)
         # print('CP', len(CP), [len(v) for v in CP])
         BCP = self.boundary_connected_components(CP)
@@ -158,6 +184,7 @@ class Chain():
             # print('VCP', len(VCP), [len(v) for v in VCP])
             swapped_colorings = self.swap_color(VCP)
             swapped_graph = self.verify_swap(swapped_colorings)
+            # print(swapped_graph)
             if swapped_graph != None:
                 break
 
@@ -196,15 +223,15 @@ def four_color_lattice(N):
     nx.set_node_attributes(lattice, colors, name='color')
     return lattice
 
-def draw_graph(graph, pos=None):
+def draw_graph(graph, pos=None, node_size=8, cmap='tab10'):
     colors = nx.get_node_attributes(graph, 'color')
-    nx.draw_networkx(graph, pos=pos, with_labels=False, node_size=8, node_color=list(colors.values()), cmap='tab10')
+    nx.draw_networkx(graph, pos=pos, with_labels=False, node_size=node_size, node_color=list(colors.values()), cmap=cmap)
     plt.show()
 
-def draw_graph_online(graph, pos=None):
+def draw_graph_online(graph, pos=None, node_size=8, cmap='tab10'):
     plt.cla()
     colors = nx.get_node_attributes(graph, 'color')
-    nx.draw_networkx(graph, pos=pos, with_labels=False, node_size=8, node_color=list(colors.values()), cmap='tab10')
+    nx.draw_networkx(graph, pos=pos, with_labels=False, node_size=node_size, node_color=list(colors.values()), cmap=cmap)
     plt.pause(0.0001)
 
 def lattice_layout(graph, N):
@@ -212,7 +239,13 @@ def lattice_layout(graph, N):
     return {(u, v): (u / float(N), v / float(N)) for u, v in nodes}
 
 lattice = four_color_lattice(50)
-redistricting_chain = Chain(lattice, 0.25)
+
+georgia_graph, num_districts = parse_graph('data/GeorgiaGraph.json')
+georgia_layout = parse_shape('data/ga_2016/ga_2016.shp', georgia_graph)
+draw_graph(georgia_graph, georgia_layout, cmap='tab20')
+
+# redistricting_chain = Chain(lattice, 0.07, R=2)
+redistricting_chain = Chain(georgia_graph, 0.25, num_colors=num_districts, R=2)
 
 # turn on matplotlib interactive mode
 plt.ion()
@@ -221,7 +254,9 @@ num_iterations = 1000
 for i in range(num_iterations):
     print("Performing iteration {}.".format(i + 1))
     redistricting_chain.simulate_step()
-    draw_graph_online(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50))
+    # draw_graph_online(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50))
+    draw_graph_online(redistricting_chain.current_graph, pos=georgia_layout, node_size=4, cmap='tab20')
 
 # save figure to disk at the end
-plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations)
+# plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations, node_size=15)
+plot_graph(redistricting_chain.current_graph, pos=georgia_layout, num_iterations=num_iterations, node_size=4, cmap='tab20')
