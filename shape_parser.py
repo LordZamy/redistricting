@@ -1,6 +1,7 @@
 import networkx as nx
 import fiona
 from shapely.geometry import *
+import pickle
 
 def parse_shape(location, graph=None):
     fprecincts = fiona.open(location)
@@ -28,3 +29,7 @@ def parse_shape(location, graph=None):
         pos[name] = (x[0], y[0])
 
     return pos
+
+def parse_pos(location=None):
+    graph = pickle.load(open("data/graph.pkl", "rb"))
+    return graph["pos"]

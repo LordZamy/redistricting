@@ -4,9 +4,10 @@ import random
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from plotting import plot_graph
 from json_parser import parse_graph
-from shape_parser import parse_shape
+from shape_parser import parse_shape, parse_pos
 
 # change figure size
 plt.rcParams["figure.figsize"] = (8, 7)
@@ -241,11 +242,14 @@ def lattice_layout(graph, N):
 lattice = four_color_lattice(50)
 
 georgia_graph, num_districts = parse_graph('data/GeorgiaGraph.json')
-georgia_layout = parse_shape('data/ga_2016/ga_2016.shp', georgia_graph)
-draw_graph(georgia_graph, georgia_layout, cmap='tab20')
+# georgia_layout = parse_shape('data/ga_2016/ga_2016.shp', georgia_graph)
+georgia_layout = parse_pos()
+georgia_cmap = cm.get_cmap('hsv', 14)
+# draw_graph(georgia_graph, georgia_layout, cmap=georgia_cmap)
+# plot_graph(georgia_graph, pos=georgia_layout, num_iterations=0, cmap=georgia_cmap)
 
 # redistricting_chain = Chain(lattice, 0.07, R=2)
-redistricting_chain = Chain(georgia_graph, 0.25, num_colors=num_districts, R=2)
+redistricting_chain = Chain(georgia_graph, 0.07, num_colors=num_districts, R=5)
 
 # turn on matplotlib interactive mode
 plt.ion()
@@ -255,8 +259,8 @@ for i in range(num_iterations):
     print("Performing iteration {}.".format(i + 1))
     redistricting_chain.simulate_step()
     # draw_graph_online(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50))
-    draw_graph_online(redistricting_chain.current_graph, pos=georgia_layout, node_size=4, cmap='tab20')
+    draw_graph_online(redistricting_chain.current_graph, pos=georgia_layout, cmap=georgia_cmap)
 
 # save figure to disk at the end
-# plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations, node_size=15)
-plot_graph(redistricting_chain.current_graph, pos=georgia_layout, num_iterations=num_iterations, node_size=4, cmap='tab20')
+# plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations, node_size=20, cmap='tab10')
+plot_graph(redistricting_chain.current_graph, pos=georgia_layout, num_iterations=num_iterations, cmap=georgia_cmap)
