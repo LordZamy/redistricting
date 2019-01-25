@@ -1,5 +1,6 @@
-from itertools import product
+from itertools import product, combinations, starmap
 import random
+import math
 
 import networkx as nx
 import numpy as np
@@ -12,6 +13,8 @@ from shape_parser import parse_shape, parse_pos
 # change figure size
 plt.rcParams["figure.figsize"] = (8, 7)
 
+lattice_population_parity = 625
+
 class Chain():
     def __init__(self, graph, q, num_colors=4, R=1):
         self.current_graph = graph
@@ -23,6 +26,10 @@ class Chain():
 
         # confirm initial graph is correct
         adjacency_graph = self.create_adjacency_graph(graph)
+        # the computed compactness score per partition
+        # self.compactness = compute_initial_compactness(self.connected_components(adjacency_graph))
+        self.compactness = self.compute_compact_constraint(self.connected_components(adjacency_graph))
+        print(self.compactness)
         # draw_graph(adjacency_graph, georgia_layout, cmap='tab20')
         colors = nx.get_node_attributes(graph, 'color')
         unique_colors = len(np.unique(list(colors.values())))
@@ -118,12 +125,12 @@ class Chain():
         for component in components:
             adjacent_nodes = nx.algorithms.boundary.node_boundary(self.current_graph, component)
             component_node = next(iter(component))
-            adjacent_color_partions = set()
+            adjacent_color_partitions = set()
             for node in adjacent_nodes:
                 if colors[node] != colors[component_node]:
-                    adjacent_color_partions.add(colors[node])
+                    adjacent_color_partitions.add(colors[node])
 
-            new_color = np.random.choice(list(adjacent_color_partions))
+            new_color = np.random.choice(list(adjacent_color_partitions))
             swapped_colorings.append((component, new_color))
 
         return swapped_colorings
@@ -169,6 +176,125 @@ class Chain():
         values = {node: color for component, color in swapped_colorings for node in component}
         nx.set_node_attributes(self.current_graph, values, 'color')
 
+    def compute_pop_constraint(self, partitions):
+        global lattice_population_parity
+        return sum([abs(len(p) / float(lattice_population_parity) - 1) for p in partitions])
+
+    """
+    Currently letting e_i and e_j equal to 1.
+    """
+    def compute_compact_constraint(self, partitions):
+        partition_pairs = [combinations(partition, 2) for partition in partitions]
+        partition_distances = [Chain.euclidean_distance_square(*pair) for partition in partition_pairs for pair in partition]
+        return sum(partition_distances)
+
+    def compute_initial_compactness(self, partitions):
+        partition_pairs = [combinations(partition, 2) for partition in partitions]
+        partition_distances = [starmap(Chain.euclidean_distance_square, partition) for partition in partition_pairs]
+        return [sum(partition) for partition in partition_distances]
+
+    def update_compactness(self, old_graph, old_partitions, new_graph, new_partitions, swapped_colorings):
+        op = Chain.map_partitions_to_color(old_graph, old_partitions)
+        np = Chain.map_partitions_to_color(new_graph, new_partitions)
+        osc = Chain.map_swapped_colorings_to_old_colors(old_graph, swapped_colorings)
+        nsc = Chain.map_swapped_colorings_to_color(swapped_colorings)
+
+        # placeholder for cached compactness score
+        compactness = self.compactness
+        flat_swap = [component for component, _ in swapped_colorings]
+        # print(flat_swap)
+        print(osc)
+        print(nsc)
+        # removing vertices
+        for color, components in osc.items():
+            monotone_components = components + [op[color].difference(*flat_swap)]
+            print(len(op[color].difference(*flat_swap)))
+            print([len(c) for c in components])
+            # print(len(monotone_components))
+            monotone_component_pairs = combinations(monotone_components, 2)
+            c = 0
+            for pair in monotone_component_pairs:
+                c += 1
+                compactness -= Chain.inter_component_distance(*pair)
+            print('removal length:', c)
+
+        # adding vertices
+        for color, component in nsc.items():
+            monotone_components = components + [np[color].difference(*flat_swap)]
+            print(len(np[color].difference(*flat_swap)))
+            print([len(c) for c in components])
+            monotone_component_pairs = combinations(monotone_components, 2)
+            c = 0
+            for pair in monotone_component_pairs:
+                c += 1
+                compactness += Chain.inter_component_distance(*pair)
+            print('addition length:', c)
+
+        return compactness
+
+
+    """
+    Returns dict of form {color: partition}
+    """
+    def map_partitions_to_color(graph, partitions):
+        colors = nx.get_node_attributes(graph, 'color')
+        color_partitions = {}
+        for partition in partitions:
+            node = next(iter(partition))
+            color_partitions[colors[node]] = partition
+            print(colors[node], len(partition))
+        return color_partitions
+
+    def map_swapped_colorings_to_color(swapped_colorings):
+        colormap = {}
+        for component, color in swapped_colorings:
+            if color not in colormap:
+                colormap[color] = [component]
+            else:
+                colormap[color].append(component)
+        return colormap
+
+    def map_swapped_colorings_to_old_colors(old_graph, swapped_colorings):
+        old_colors = nx.get_node_attributes(old_graph, 'color')
+        colormap = {}
+        for component, color in swapped_colorings:
+            node = next(iter(component))
+            old_color = old_colors[node]
+            if old_color not in colormap:
+                colormap[old_color] = [component]
+            else:
+                colormap[old_color].append(component)
+        return colormap
+
+    """
+    Sums the square distance between every pair of nodes u, v s.t. u belongs
+    to first and v belongs to second.
+    """
+    def inter_component_distance(first, second):
+        pairs = list(product(first, second))
+        print(len(pairs))
+        return sum(starmap(Chain.euclidean_distance_square, pairs))
+
+    def euclidean_distance_square(u, v):
+        dx = u[0] - v[0]
+        dy = u[1] - v[1]
+        return dx * dx + dy * dy
+
+    def compute_compact_constraint_internal(self, partitions):
+        total = 0
+        for partition in partitions:
+            pairs = combinations(partition, 2)
+            # partition_graph = nx.Graph()
+            partition_graph = self.current_graph.subgraph(partition)
+            print(partition_graph.number_of_nodes(), partition_graph.number_of_edges())
+            # partition_graph.add_nodes_from(partition)
+            distance = dict(nx.algorithms.shortest_paths.unweighted.all_pairs_shortest_path_length(partition_graph))
+            print('computed')
+            for pair in pairs:
+                total += distance[pair[0]][pair[1]]
+
+        return total
+
     def simulate_step(self):
         adjacency_graph = self.create_adjacency_graph(self.current_graph)
         self.randomly_remove_edges(adjacency_graph)
@@ -199,20 +325,47 @@ class Chain():
         swapped_components = self.connected_components(swapped_adjacency_graph)
         swapped_boundary_components = self.boundary_connected_components(CP, swapped_graph)
         # print(len(BCP), len(swapped_boundary_components))
+        print([len(c) for c in self.connected_components(original_adjacency_graph)])
 
         boundary_total = (float(len(BCP)) / len(swapped_boundary_components)) ** self.R
         prob_remove_edge = 1 - self.prob_keep_edge
         adjacent_total = float(prob_remove_edge ** swapped_cut_count) / (prob_remove_edge ** old_cut_count)
         print(swapped_cut_count, old_cut_count)
         accept_prob = min(1, boundary_total * adjacent_total)
-        print(accept_prob)
+        # print(accept_prob)
+
+        # original_pop_constraint = self.compute_pop_constraint(self.connected_components(original_adjacency_graph))
+        # swapped_pop_constraint = self.compute_pop_constraint(swapped_components)
+        #
+        # pop_accept_prob = min(1, math.exp(-0.4 * (swapped_pop_constraint - original_pop_constraint)) * boundary_total * adjacent_total)
+
+        # original_compact_constraint = self.compute_compact_constraint(self.connected_components(original_adjacency_graph))
+        original_compact_constraint = self.compactness
+        # swapped_compact_constraint = self.compute_compact_constraint(swapped_components)
+        swapped_compact_constraint = self.update_compactness(self.current_graph, self.connected_components(original_adjacency_graph), swapped_graph, swapped_components, swapped_colorings)
+        # print(swapped_compact_constraint - original_compact_constraint, swapped_compact_constraint, original_compact_constraint)
+        actual_swapped_compactness = self.compute_compact_constraint(swapped_components)
+        print(swapped_compact_constraint, actual_swapped_compactness)
+        scale = 0.00001
+        compact_accept_prob = min(1, math.exp(-0.9 * scale * (swapped_compact_constraint - original_compact_constraint)) * boundary_total * adjacent_total)
 
         # print(boundary_total, adjacent_total)
-        if random.random() < accept_prob:
-            self.current_graph = swapped_graph
+        # if random.random() < accept_prob:
+        #     self.current_graph = swapped_graph
 
-def four_color_lattice(N):
-    lattice = nx.generators.lattice.grid_2d_graph(N, N, periodic=True)
+        # print(pop_accept_prob)
+        # if random.random() < pop_accept_prob:
+        #     self.current_graph = swapped_graph
+
+        print(compact_accept_prob)
+        if random.random() < compact_accept_prob:
+            # move chain to new graph
+            self.current_graph = swapped_graph
+            # update compactness score
+            self.compactness = swapped_compact_constraint
+
+def four_color_lattice(N, periodic=True):
+    lattice = nx.generators.lattice.grid_2d_graph(N, N, periodic=periodic)
     half_N = int(N / 2)
     color_partitions = {
                         1: product(range(half_N), range(half_N)),
@@ -223,6 +376,58 @@ def four_color_lattice(N):
     colors = {n: i for i in range(1, 5) for n in list(color_partitions[i])}
     nx.set_node_attributes(lattice, colors, name='color')
     return lattice
+
+def bad_two_color_lattice(N):
+    lattice = lattice = nx.generators.lattice.grid_2d_graph(N, N, periodic=False)
+    colors = {}
+    for i in range(N):
+        for j in range(N):
+            if j < N * 2 / 10:
+                colors[(i, j)] = 1
+            elif j > N * 8 / 10:
+                colors[(i, j)] = 2
+            elif i * 10 / N % 2 == 0:
+                colors[(i, j)] = 1
+            else:
+                colors[(i, j)] = 2
+
+    nx.set_node_attributes(lattice, colors, name='color')
+    return lattice
+
+def bad_uniform_two_color_lattice(N):
+    assert N % 5 == 0
+    lattice = lattice = nx.generators.lattice.grid_2d_graph(N, N, periodic=False)
+    colors = {}
+    for i in range(N):
+        for j in range(N):
+            if j % 10 < 5:
+                if i == N - 1:
+                    colors[(i, j)] = 2
+                else:
+                    colors[(i, j)] = 1
+            else:
+                if i == 0:
+                    colors[(i, j)] = 1
+                else:
+                    colors[(i, j)] = 2
+
+    nx.set_node_attributes(lattice, colors, name='color')
+    return lattice
+
+def concentric_circle_graph():
+    graph = nx.Graph()
+    nodes = []
+    for r in range(1, 5):
+        angles = np.linspace(0, 2 * np.pi, 20)
+        nodes += [polar_to_cartesian(angle, r) for angle in angles]
+    graph.add_nodes_from(nodes)
+    colors = {node: 1 for node in nodes}
+    nx.set_node_attributes(graph, colors, name='color')
+    return graph
+
+def polar_to_cartesian(theta, r):
+    return (math.cos(theta) * r, math.sin(theta) * r)
+
 
 def draw_graph(graph, pos=None, node_size=8, cmap='tab10'):
     colors = nx.get_node_attributes(graph, 'color')
@@ -239,7 +444,16 @@ def lattice_layout(graph, N):
     nodes = graph.nodes()
     return {(u, v): (u / float(N), v / float(N)) for u, v in nodes}
 
-lattice = four_color_lattice(50)
+def concentric_circle_layout(graph):
+    nodes = graph.nodes()
+    return {(u, v): (u / 5.0, v / 5.0) for u, v in nodes}
+
+# lattice = four_color_lattice(50)
+# for testing compactness constraint
+# lattice = four_color_lattice(50, periodic=False)
+lattice = bad_two_color_lattice(50)
+# lattice = bad_uniform_two_color_lattice(30)
+circle = concentric_circle_graph()
 
 georgia_graph, num_districts = parse_graph('data/GeorgiaGraph.json')
 # georgia_layout = parse_shape('data/ga_2016/ga_2016.shp', georgia_graph)
@@ -247,20 +461,25 @@ georgia_layout = parse_pos()
 georgia_cmap = cm.get_cmap('hsv', 14)
 # draw_graph(georgia_graph, georgia_layout, cmap=georgia_cmap)
 # plot_graph(georgia_graph, pos=georgia_layout, num_iterations=0, cmap=georgia_cmap)
+# draw_graph(lattice, lattice_layout(lattice, 50), cmap='tab10')
+# draw_graph(lattice, lattice_layout(lattice, 30), cmap='winter')
+draw_graph(circle, concentric_circle_layout(circle), cmap='winter')
 
 # redistricting_chain = Chain(lattice, 0.07, R=2)
-redistricting_chain = Chain(georgia_graph, 0.07, num_colors=num_districts, R=5)
+# redistricting_chain = Chain(georgia_graph, 0.07, num_colors=num_districts, R=5)
+redistricting_chain = Chain(lattice, 0.07, num_colors=2, R=2)
 
 # turn on matplotlib interactive mode
 plt.ion()
 
-num_iterations = 1000
+num_iterations = 5000
 for i in range(num_iterations):
     print("Performing iteration {}.".format(i + 1))
     redistricting_chain.simulate_step()
     # draw_graph_online(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50))
-    draw_graph_online(redistricting_chain.current_graph, pos=georgia_layout, cmap=georgia_cmap)
+    # draw_graph_online(redistricting_chain.current_graph, pos=georgia_layout, cmap=georgia_cmap)
 
 # save figure to disk at the end
-# plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations, node_size=20, cmap='tab10')
-plot_graph(redistricting_chain.current_graph, pos=georgia_layout, num_iterations=num_iterations, cmap=georgia_cmap)
+# plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations, node_size=20, cmap='winter')
+# plot_graph(redistricting_chain.current_graph, pos=georgia_layout, num_iterations=num_iterations, cmap=georgia_cmap)
+plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations, node_size=20, cmap='winter')
