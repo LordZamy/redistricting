@@ -203,32 +203,34 @@ class Chain():
         compactness = self.compactness
         flat_swap = [component for component, _ in swapped_colorings]
         # print(flat_swap)
-        print(osc)
-        print(nsc)
+        # print(osc)
+        # print(nsc)
         # removing vertices
         for color, components in osc.items():
             monotone_components = components + [op[color].difference(*flat_swap)]
-            print(len(op[color].difference(*flat_swap)))
-            print([len(c) for c in components])
+            # print(monotone_components)
+            # print(len(op[color].difference(*flat_swap)))
+            # print([len(c) for c in components])
             # print(len(monotone_components))
             monotone_component_pairs = combinations(monotone_components, 2)
-            c = 0
+            # c = 0
             for pair in monotone_component_pairs:
-                c += 1
+                # c += 1
                 compactness -= Chain.inter_component_distance(*pair)
-            print('removal length:', c)
+            # print('removal length:', c)
 
         # adding vertices
-        for color, component in nsc.items():
+        for color, components in nsc.items():
             monotone_components = components + [np[color].difference(*flat_swap)]
-            print(len(np[color].difference(*flat_swap)))
-            print([len(c) for c in components])
+            # print(monotone_components)
+            # print(len(np[color].difference(*flat_swap)))
+            # print([len(c) for c in components])
             monotone_component_pairs = combinations(monotone_components, 2)
-            c = 0
+            # c = 0
             for pair in monotone_component_pairs:
-                c += 1
+                # c += 1
                 compactness += Chain.inter_component_distance(*pair)
-            print('addition length:', c)
+            # print('addition length:', c)
 
         return compactness
 
@@ -329,8 +331,10 @@ class Chain():
 
         boundary_total = (float(len(BCP)) / len(swapped_boundary_components)) ** self.R
         prob_remove_edge = 1 - self.prob_keep_edge
+        # CHANGE THIS FOR (1 - q)/(1 - q) effect
         adjacent_total = float(prob_remove_edge ** swapped_cut_count) / (prob_remove_edge ** old_cut_count)
-        print(swapped_cut_count, old_cut_count)
+        # adjacent_total = 1
+        # print(swapped_cut_count, old_cut_count)
         accept_prob = min(1, boundary_total * adjacent_total)
         # print(accept_prob)
 
@@ -344,20 +348,20 @@ class Chain():
         # swapped_compact_constraint = self.compute_compact_constraint(swapped_components)
         swapped_compact_constraint = self.update_compactness(self.current_graph, self.connected_components(original_adjacency_graph), swapped_graph, swapped_components, swapped_colorings)
         # print(swapped_compact_constraint - original_compact_constraint, swapped_compact_constraint, original_compact_constraint)
-        actual_swapped_compactness = self.compute_compact_constraint(swapped_components)
-        print(swapped_compact_constraint, actual_swapped_compactness)
-        scale = 0.00001
-        compact_accept_prob = min(1, math.exp(-0.9 * scale * (swapped_compact_constraint - original_compact_constraint)) * boundary_total * adjacent_total)
+        # actual_swapped_compactness = self.compute_compact_constraint(swapped_components)
+        # print(swapped_compact_constraint, actual_swapped_compactness)
+        scale = 0.001
+        compact_accept_prob = min(1, math.exp(-0.5 * scale * (swapped_compact_constraint - original_compact_constraint)) * boundary_total * adjacent_total)
 
-        # print(boundary_total, adjacent_total)
-        # if random.random() < accept_prob:
-        #     self.current_graph = swapped_graph
+        print(boundary_total, adjacent_total)
+        if random.random() < accept_prob:
+            self.current_graph = swapped_graph
 
         # print(pop_accept_prob)
         # if random.random() < pop_accept_prob:
         #     self.current_graph = swapped_graph
 
-        print(compact_accept_prob)
+        # print(compact_accept_prob)
         if random.random() < compact_accept_prob:
             # move chain to new graph
             self.current_graph = swapped_graph
@@ -451,9 +455,9 @@ def concentric_circle_layout(graph):
 # lattice = four_color_lattice(50)
 # for testing compactness constraint
 # lattice = four_color_lattice(50, periodic=False)
-lattice = bad_two_color_lattice(50)
-# lattice = bad_uniform_two_color_lattice(30)
-circle = concentric_circle_graph()
+# lattice = bad_two_color_lattice(50)
+lattice = bad_uniform_two_color_lattice(30)
+# circle = concentric_circle_graph()
 
 georgia_graph, num_districts = parse_graph('data/GeorgiaGraph.json')
 # georgia_layout = parse_shape('data/ga_2016/ga_2016.shp', georgia_graph)
@@ -462,12 +466,12 @@ georgia_cmap = cm.get_cmap('hsv', 14)
 # draw_graph(georgia_graph, georgia_layout, cmap=georgia_cmap)
 # plot_graph(georgia_graph, pos=georgia_layout, num_iterations=0, cmap=georgia_cmap)
 # draw_graph(lattice, lattice_layout(lattice, 50), cmap='tab10')
-# draw_graph(lattice, lattice_layout(lattice, 30), cmap='winter')
-draw_graph(circle, concentric_circle_layout(circle), cmap='winter')
+draw_graph(lattice, lattice_layout(lattice, 30), cmap='winter')
+# draw_graph(circle, concentric_circle_layout(circle), cmap='winter')
 
 # redistricting_chain = Chain(lattice, 0.07, R=2)
 # redistricting_chain = Chain(georgia_graph, 0.07, num_colors=num_districts, R=5)
-redistricting_chain = Chain(lattice, 0.07, num_colors=2, R=2)
+redistricting_chain = Chain(lattice, 0.5, num_colors=2, R=2)
 
 # turn on matplotlib interactive mode
 plt.ion()
