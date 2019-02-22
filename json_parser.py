@@ -38,3 +38,31 @@ def parse_graph(location):
     num_districts = len(np.unique(list(colors.values())))
 
     return (graph, num_districts)
+
+"""
+Utility for constructing graph in mcmc-tests/redist-deb-web-gui/input-graphs/
+Returns the rendering position dictionary as well.
+"""
+def parse_example_graph(location):
+    with open(location) as f:
+        data = json.load(f)
+
+    nodes = data['nodes']
+    graph = nx.Graph()
+
+    pos = {}
+    colors = set()
+    for node in nodes:
+        node_id = node['ID']
+        color = node['color']
+        x = node['xCoord']
+        y = node['yCoord']
+        neighbors = node['neighbors']
+
+        graph.add_node(node_id, color=color, pos=(x, y))
+        graph.add_edges_from([(node_id, neighbor) for neighbor in neighbors])
+        pos[node_id] = (x, y)
+
+        colors.add(color)
+
+    return (graph, len(colors), pos)

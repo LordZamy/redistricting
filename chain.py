@@ -1,19 +1,21 @@
 from itertools import product, combinations, starmap
 import random
 import math
+import sys
 
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from plotting import plot_graph
-from json_parser import parse_graph
+from json_parser import parse_graph, parse_example_graph
 from shape_parser import parse_shape, parse_pos
 
 # change figure size
 plt.rcParams["figure.figsize"] = (8, 7)
 
 lattice_population_parity = 625
+beta = 0.00005
 
 class Chain():
     def __init__(self, graph, q, num_colors=4, R=1):
@@ -23,6 +25,11 @@ class Chain():
         # constant that determines the number of non-adjacent boundary components
         # selected during step 3 of the algorithm
         self.R = R
+
+        # use pos instead of node_id if it exists
+        self.pos = nx.get_node_attributes(graph, 'pos')
+        if len(self.pos) == 0:
+            self.pos = None
 
         # confirm initial graph is correct
         adjacency_graph = self.create_adjacency_graph(graph)
@@ -180,17 +187,24 @@ class Chain():
         global lattice_population_parity
         return sum([abs(len(p) / float(lattice_population_parity) - 1) for p in partitions])
 
+    def compute_discrete_compactness(self, partitions):
+        score = 0
+        for partition in partitions:
+            score += float(len(partition)) / (len(nx.algorithms.boundary.node_boundary(self.current_graph, partition)) ** 2)
+
+        return score
+
     """
     Currently letting e_i and e_j equal to 1.
     """
     def compute_compact_constraint(self, partitions):
         partition_pairs = [combinations(partition, 2) for partition in partitions]
-        partition_distances = [Chain.euclidean_distance_square(*pair) for partition in partition_pairs for pair in partition]
+        partition_distances = [self.compute_distance(*pair) for partition in partition_pairs for pair in partition]
         return sum(partition_distances)
 
     def compute_initial_compactness(self, partitions):
         partition_pairs = [combinations(partition, 2) for partition in partitions]
-        partition_distances = [starmap(Chain.euclidean_distance_square, partition) for partition in partition_pairs]
+        partition_distances = [starmap(self.compute_distance, partition) for partition in partition_pairs]
         return [sum(partition) for partition in partition_distances]
 
     def update_compactness(self, old_graph, old_partitions, new_graph, new_partitions, swapped_colorings):
@@ -216,7 +230,7 @@ class Chain():
             # c = 0
             for pair in monotone_component_pairs:
                 # c += 1
-                compactness -= Chain.inter_component_distance(*pair)
+                compactness -= self.inter_component_distance(*pair)
             # print('removal length:', c)
 
         # adding vertices
@@ -229,7 +243,7 @@ class Chain():
             # c = 0
             for pair in monotone_component_pairs:
                 # c += 1
-                compactness += Chain.inter_component_distance(*pair)
+                compactness += self.inter_component_distance(*pair)
             # print('addition length:', c)
 
         return compactness
@@ -272,10 +286,18 @@ class Chain():
     Sums the square distance between every pair of nodes u, v s.t. u belongs
     to first and v belongs to second.
     """
-    def inter_component_distance(first, second):
+    def inter_component_distance(self, first, second):
         pairs = list(product(first, second))
         print(len(pairs))
-        return sum(starmap(Chain.euclidean_distance_square, pairs))
+        return sum(starmap(self.compute_distance, pairs))
+
+    """
+    Wrapper for computing distances between two nodes u and v.
+    """
+    def compute_distance(self, u, v):
+        if len(self.pos) == 0:
+            return Chain.euclidean_distance_square(u, v)
+        return Chain.euclidean_distance_square(self.pos[u], self.pos[v])
 
     def euclidean_distance_square(u, v):
         dx = u[0] - v[0]
@@ -350,12 +372,19 @@ class Chain():
         # print(swapped_compact_constraint - original_compact_constraint, swapped_compact_constraint, original_compact_constraint)
         # actual_swapped_compactness = self.compute_compact_constraint(swapped_components)
         # print(swapped_compact_constraint, actual_swapped_compactness)
-        scale = 0.001
-        compact_accept_prob = min(1, math.exp(-0.5 * scale * (swapped_compact_constraint - original_compact_constraint)) * boundary_total * adjacent_total)
+        # scale = 0.001
+        # print(swapped_compact_constraint - original_compact_constraint, boundary)
+        try:
+            exponential = math.exp(-beta * (swapped_compact_constraint - original_compact_constraint))
+            compact_accept_prob = min(1, exponential * boundary_total * adjacent_total)
+        except OverflowError:
+            # this happens when the exponential is too big
+            compact_accept_prob = 1
 
-        print(boundary_total, adjacent_total)
-        if random.random() < accept_prob:
-            self.current_graph = swapped_graph
+        print(compact_accept_prob)
+        # print(boundary_total, adjacent_total)
+        # if random.random() < accept_prob:
+        #     self.current_graph = swapped_graph
 
         # print(pop_accept_prob)
         # if random.random() < pop_accept_prob:
@@ -452,26 +481,37 @@ def concentric_circle_layout(graph):
     nodes = graph.nodes()
     return {(u, v): (u / 5.0, v / 5.0) for u, v in nodes}
 
+if len(sys.argv) > 1:
+    graph_location = sys.argv[1]
+    input_graph, num_colors, input_pos = parse_example_graph(graph_location)
+    print('Colors: {}'.format(num_colors))
+else:
+    input_graph = None
+
 # lattice = four_color_lattice(50)
 # for testing compactness constraint
 # lattice = four_color_lattice(50, periodic=False)
 # lattice = bad_two_color_lattice(50)
-lattice = bad_uniform_two_color_lattice(30)
+# lattice = bad_uniform_two_color_lattice(30)
 # circle = concentric_circle_graph()
 
-georgia_graph, num_districts = parse_graph('data/GeorgiaGraph.json')
+# georgia_graph, num_districts = parse_graph('data/GeorgiaGraph.json')
 # georgia_layout = parse_shape('data/ga_2016/ga_2016.shp', georgia_graph)
-georgia_layout = parse_pos()
-georgia_cmap = cm.get_cmap('hsv', 14)
+# georgia_layout = parse_pos()
+# georgia_cmap = cm.get_cmap('hsv', 14)
 # draw_graph(georgia_graph, georgia_layout, cmap=georgia_cmap)
 # plot_graph(georgia_graph, pos=georgia_layout, num_iterations=0, cmap=georgia_cmap)
 # draw_graph(lattice, lattice_layout(lattice, 50), cmap='tab10')
-draw_graph(lattice, lattice_layout(lattice, 30), cmap='winter')
+# draw_graph(lattice, lattice_layout(lattice, 30), cmap='winter')
 # draw_graph(circle, concentric_circle_layout(circle), cmap='winter')
+# draw_graph(input_graph, input_pos, node_size=20, cmap='winter')
 
 # redistricting_chain = Chain(lattice, 0.07, R=2)
 # redistricting_chain = Chain(georgia_graph, 0.07, num_colors=num_districts, R=5)
-redistricting_chain = Chain(lattice, 0.5, num_colors=2, R=2)
+# redistricting_chain = Chain(lattice, 0.5, num_colors=2, R=2)
+R = 2
+q = 0.5
+redistricting_chain = Chain(input_graph, q, num_colors=num_colors, R=R)
 
 # turn on matplotlib interactive mode
 plt.ion()
@@ -482,8 +522,11 @@ for i in range(num_iterations):
     redistricting_chain.simulate_step()
     # draw_graph_online(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50))
     # draw_graph_online(redistricting_chain.current_graph, pos=georgia_layout, cmap=georgia_cmap)
+    # draw_graph_online(redistricting_chain.current_graph, pos=input_pos, cmap='tab10')
+
 
 # save figure to disk at the end
 # plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations, node_size=20, cmap='winter')
 # plot_graph(redistricting_chain.current_graph, pos=georgia_layout, num_iterations=num_iterations, cmap=georgia_cmap)
-plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations, node_size=20, cmap='winter')
+# plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations, node_size=20, cmap='winter')
+plot_graph(redistricting_chain.current_graph, pos=input_pos, num_iterations=num_iterations, node_size=30, cmap='tab10', num_colors=num_colors, q=q, R=R, beta=beta)
