@@ -57,10 +57,10 @@ def parse_example_graph(location):
         color = node['color']
         x = node['xCoord']
         y = node['yCoord']
-        neighbors = node['neighbors']
+        neighbors = {int(neighbor): weight for neighbor, weight in node['neighbors'].items()}
 
         graph.add_node(node_id, color=color, pos=(x, y))
-        graph.add_edges_from([(node_id, neighbor) for neighbor in neighbors])
+        graph.add_weighted_edges_from([(node_id, neighbor, weight) for neighbor, weight in neighbors.items()])
         pos[node_id] = (x, y)
 
         colors.add(color)

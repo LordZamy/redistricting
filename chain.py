@@ -16,9 +16,10 @@ plt.rcParams["figure.figsize"] = (8, 7)
 
 lattice_population_parity = 625
 beta = 0.00005
+within_county_weight = 1
 
 class Chain():
-    def __init__(self, graph, q, num_colors=4, R=1):
+    def __init__(self, graph, q, num_colors=4, R=1, input_pos=None):
         self.current_graph = graph
         self.prob_keep_edge = q
         self.num_colors = num_colors
@@ -36,6 +37,7 @@ class Chain():
         # the computed compactness score per partition
         # self.compactness = compute_initial_compactness(self.connected_components(adjacency_graph))
         self.compactness = self.compute_compact_constraint(self.connected_components(adjacency_graph))
+        # self.compactness = self.compute_discrete_compactness(self.connected_components(adjacency_graph))
         print(self.compactness)
         # draw_graph(adjacency_graph, georgia_layout, cmap='tab20')
         colors = nx.get_node_attributes(graph, 'color')
@@ -69,6 +71,16 @@ class Chain():
 
         return adjacency_graph
 
+    # returns edge weight dependent upon if node lies between counties or not
+    def get_real_edge_weight(graph, u, v):
+        weight = graph[u][v]['weight']
+        # nodes are in different counties
+        if weight == 0:
+            return 1
+        # nodes are in same county
+        elif weight == 1:
+            return within_county_weight
+
     """
     Mutates a given graph by deleting edges randomly with `1 - prob_keep_edge` chance
     """
@@ -76,7 +88,8 @@ class Chain():
         edges = graph.edges()
         edges_to_remove = []
         for u, v in edges:
-            if random.random() < 1 - self.prob_keep_edge:
+            w = Chain.get_real_edge_weight(graph, u, v)
+            if random.random() < (1 - self.prob_keep_edge) ** w:
                 edges_to_remove.append((u, v))
         graph.remove_edges_from(edges_to_remove)
 
@@ -148,7 +161,8 @@ class Chain():
         for u, v in edges:
             for component in VCP:
                 if (u in component and v not in component) or (u not in component and v in component):
-                    edge_count += 1
+                    w = Chain.get_real_edge_weight(adjacency_graph, u, v)
+                    edge_count += w
                     break
 
         return edge_count
@@ -258,7 +272,7 @@ class Chain():
         for partition in partitions:
             node = next(iter(partition))
             color_partitions[colors[node]] = partition
-            print(colors[node], len(partition))
+            # print(colors[node], len(partition))
         return color_partitions
 
     def map_swapped_colorings_to_color(swapped_colorings):
@@ -288,7 +302,7 @@ class Chain():
     """
     def inter_component_distance(self, first, second):
         pairs = list(product(first, second))
-        print(len(pairs))
+        # print(len(pairs))
         return sum(starmap(self.compute_distance, pairs))
 
     """
@@ -324,6 +338,7 @@ class Chain():
         self.randomly_remove_edges(adjacency_graph)
         # draw_graph(adjacency_graph, pos=lattice_layout(adjacency_graph, 50))
         # draw_graph_online(adjacency_graph, pos=lattice_layout(lattice, 50))
+        # draw_graph_online(adjacency_graph, pos=input_pos)
         # global georgia_layout
         # draw_graph_online(adjacency_graph, pos=georgia_layout)
         CP = self.connected_components(adjacency_graph)
@@ -356,7 +371,8 @@ class Chain():
         # CHANGE THIS FOR (1 - q)/(1 - q) effect
         adjacent_total = float(prob_remove_edge ** swapped_cut_count) / (prob_remove_edge ** old_cut_count)
         # adjacent_total = 1
-        # print(swapped_cut_count, old_cut_count)
+        print(swapped_cut_count, old_cut_count)
+        print(adjacent_total, boundary_total)
         accept_prob = min(1, boundary_total * adjacent_total)
         # print(accept_prob)
 
@@ -369,11 +385,12 @@ class Chain():
         original_compact_constraint = self.compactness
         # swapped_compact_constraint = self.compute_compact_constraint(swapped_components)
         swapped_compact_constraint = self.update_compactness(self.current_graph, self.connected_components(original_adjacency_graph), swapped_graph, swapped_components, swapped_colorings)
+        # swapped_compact_constraint = self.compute_discrete_compactness(swapped_components)
         # print(swapped_compact_constraint - original_compact_constraint, swapped_compact_constraint, original_compact_constraint)
         # actual_swapped_compactness = self.compute_compact_constraint(swapped_components)
         # print(swapped_compact_constraint, actual_swapped_compactness)
-        # scale = 0.001
-        # print(swapped_compact_constraint - original_compact_constraint, boundary)
+        scale = 0.001
+        print(swapped_compact_constraint - original_compact_constraint)
         try:
             exponential = math.exp(-beta * (swapped_compact_constraint - original_compact_constraint))
             compact_accept_prob = min(1, exponential * boundary_total * adjacent_total)
@@ -381,7 +398,7 @@ class Chain():
             # this happens when the exponential is too big
             compact_accept_prob = 1
 
-        print(compact_accept_prob)
+        # print(compact_accept_prob)
         # print(boundary_total, adjacent_total)
         # if random.random() < accept_prob:
         #     self.current_graph = swapped_graph
@@ -390,7 +407,7 @@ class Chain():
         # if random.random() < pop_accept_prob:
         #     self.current_graph = swapped_graph
 
-        # print(compact_accept_prob)
+        print(compact_accept_prob)
         if random.random() < compact_accept_prob:
             # move chain to new graph
             self.current_graph = swapped_graph
@@ -504,14 +521,15 @@ else:
 # draw_graph(lattice, lattice_layout(lattice, 50), cmap='tab10')
 # draw_graph(lattice, lattice_layout(lattice, 30), cmap='winter')
 # draw_graph(circle, concentric_circle_layout(circle), cmap='winter')
+# print(input_pos)
 # draw_graph(input_graph, input_pos, node_size=20, cmap='winter')
 
 # redistricting_chain = Chain(lattice, 0.07, R=2)
 # redistricting_chain = Chain(georgia_graph, 0.07, num_colors=num_districts, R=5)
 # redistricting_chain = Chain(lattice, 0.5, num_colors=2, R=2)
 R = 2
-q = 0.5
-redistricting_chain = Chain(input_graph, q, num_colors=num_colors, R=R)
+q = 0.1
+redistricting_chain = Chain(input_graph, q, num_colors=num_colors, R=R, input_pos=input_pos)
 
 # turn on matplotlib interactive mode
 plt.ion()
@@ -529,4 +547,4 @@ for i in range(num_iterations):
 # plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations, node_size=20, cmap='winter')
 # plot_graph(redistricting_chain.current_graph, pos=georgia_layout, num_iterations=num_iterations, cmap=georgia_cmap)
 # plot_graph(redistricting_chain.current_graph, pos=lattice_layout(lattice, 50), num_iterations=num_iterations, node_size=20, cmap='winter')
-plot_graph(redistricting_chain.current_graph, pos=input_pos, num_iterations=num_iterations, node_size=30, cmap='tab10', num_colors=num_colors, q=q, R=R, beta=beta)
+plot_graph(redistricting_chain.current_graph, pos=input_pos, num_iterations=num_iterations, node_size=30, cmap='tab10', num_colors=num_colors, q=q, R=R, beta=beta, within_county_weight=within_county_weight)
