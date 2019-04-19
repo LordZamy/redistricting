@@ -57,9 +57,15 @@ def parse_example_graph(location):
         color = node['color']
         x = node['xCoord']
         y = node['yCoord']
-        neighbors = {int(neighbor): weight for neighbor, weight in node['neighbors'].items()}
+        pop_density = node.get('populationDensity')
+        county_id = node.get('countyID')
 
-        graph.add_node(node_id, color=color, pos=(x, y))
+        if type(node['neighbors']) == list:
+            neighbors = {int(neighbor): 0 for neighbor in node['neighbors']}
+        else:
+            neighbors = {int(neighbor): weight for neighbor, weight in node['neighbors'].items()}
+
+        graph.add_node(node_id, color=color, pos=(x, y), pop_density=pop_density, county_id=county_id)
         graph.add_weighted_edges_from([(node_id, neighbor, weight) for neighbor, weight in neighbors.items()])
         pos[node_id] = (x, y)
 

@@ -3,6 +3,8 @@ import random
 import math
 import sys
 import copy
+import time
+from collections import defaultdict, Counter
 
 import networkx as nx
 import numpy as np
@@ -24,6 +26,11 @@ class Chain():
         self.prob_keep_edge = q
         self.num_colors = num_colors
         self.within_county_weight = within_county_weight
+        self.pop_densities = nx.get_node_attributes(graph, 'pop_density')
+        self.county_ids = nx.get_node_attributes(graph, 'county_id')
+        if any(v is None for v in self.county_ids.values()):
+            self.county_ids = None
+
         # constant that determines the number of non-adjacent boundary components
         # selected during step 3 of the algorithm
         self.R = R
@@ -40,6 +47,7 @@ class Chain():
         self.compactness = self.compute_compact_constraint(self.connected_components(adjacency_graph))
         # self.compactness = self.compute_discrete_compactness(self.connected_components(adjacency_graph))
         print(self.compactness)
+        self.county_score = self.compute_county_score(self.current_graph)
         # draw_graph(adjacency_graph, georgia_layout, cmap='tab20')
         colors = nx.get_node_attributes(graph, 'color')
         unique_colors = len(np.unique(list(colors.values())))
@@ -84,9 +92,11 @@ class Chain():
         # nodes are in different counties
         if weight == 0:
             return 1
+            # return self.within_county_weight
         # nodes are in same county
         elif weight == 1:
             return self.within_county_weight
+            # return 1
 
     """
     Mutates a given graph by deleting edges randomly with `1 - prob_keep_edge` chance
@@ -182,7 +192,9 @@ class Chain():
         graph = self.current_graph.copy()
         nx.set_node_attributes(graph, values, 'color')
         adjacency_graph = self.create_adjacency_graph(graph)
-        draw_graph_online_highlight(adjacency_graph, num_colors, pos=input_pos)
+        # draw_graph_online_highlight(adjacency_graph, num_colors, pos=input_pos)
+        # draw_graph_online_highlight(graph, num_colors, pos=input_pos, node_size=18)
+        # plt.savefig('{}/{}.png'.format('output', time.time()), bbox_inches='tight', dpi=300)
         colors = nx.get_node_attributes(adjacency_graph, 'color')
         print('NUM COMPONENTS:', nx.algorithms.components.number_connected_components(adjacency_graph))
         print('COLOR VALUES:', len(np.unique(list(colors.values()))))
@@ -272,6 +284,42 @@ class Chain():
 
         return compactness
 
+    """
+    Returns a score depending on the number of split counties
+    """
+    def compute_county_score(self, graph):
+        if self.county_ids == None:
+            return 0
+
+        county_district_map = self.county_district_mapping(graph)
+        county_district_counter = {county: len(color) for county, color in county_district_map.items()}
+        # print(county_district_map)
+        two_colors = 0
+        more_than_two_colors = 0
+        w2e = 0
+        w3e = 0
+        for county, n_colors in county_district_counter.items():
+            vals = county_district_map[county].values()
+            if n_colors == 2:
+                two_colors += 1
+                w2e += math.sqrt(min(vals) / float(sum(vals)))
+            elif n_colors > 2:
+                more_than_two_colors += 1
+                numerator = sum(count for _, count in county_district_map[county].most_common()[2:])
+                denominator = sum(vals)
+                w3e += math.sqrt(numerator / float(denominator))
+
+        print('county stuff:', two_colors, more_than_two_colors)
+        return two_colors * w2e + 10E5 * more_than_two_colors * w3e
+
+    def county_district_mapping(self, graph):
+        colors = nx.get_node_attributes(graph, 'color')
+        county_district_map = defaultdict(Counter)
+        for node in graph.nodes():
+            county_id = self.county_ids[node]
+            color = colors[node]
+            county_district_map[county_id][color] += 1
+        return county_district_map
 
     """
     Returns dict of form {color: partition}
@@ -312,8 +360,13 @@ class Chain():
     """
     def inter_component_distance(self, first, second):
         pairs = list(product(first, second))
-        # print(len(pairs))
         return sum(starmap(self.compute_distance, pairs))
+
+
+    def compute_pop_weighted_distance(self, u, v):
+        pop_u = self.pop_densities.get(u, 1)
+        pop_v = self.pop_densities.get(v, 1)
+        return pop_u * pop_v * self.compute_distance(u, v)
 
     """
     Wrapper for computing distances between two nodes u and v.
@@ -348,7 +401,7 @@ class Chain():
         self.randomly_remove_edges(adjacency_graph)
         # draw_graph(adjacency_graph, pos=lattice_layout(adjacency_graph, 50))
         # draw_graph_online(adjacency_graph, pos=lattice_layout(lattice, 50))
-        draw_graph_online_highlight(adjacency_graph, num_colors, pos=input_pos)
+        # draw_graph_online_highlight(adjacency_graph, num_colors, pos=input_pos)
         # global georgia_layout
         # draw_graph_online(adjacency_graph, pos=georgia_layout)
         CP = self.connected_components(adjacency_graph)
@@ -357,7 +410,8 @@ class Chain():
         while True:
             print('BCP', len(BCP), [len(v) for v in BCP])
             VCP = self.non_adjacent_boundary_connected_components(BCP)
-            draw_graph_online_highlight(adjacency_graph, num_colors, pos=input_pos, components=VCP)
+            # draw_graph_online_highlight(adjacency_graph, num_colors, pos=input_pos, components=VCP)
+            # plt.savefig('{}/{}.png'.format('output', time.time()), bbox_inches='tight', dpi=300)
             print('VCP', len(VCP), [len(v) for v in VCP])
             swapped_colorings = self.swap_color(VCP)
             swapped_graph = self.verify_swap(swapped_colorings)
@@ -380,12 +434,12 @@ class Chain():
         boundary_total = (float(len(BCP)) / len(swapped_boundary_components)) ** self.R
         prob_remove_edge = 1 - self.prob_keep_edge
         # CHANGE THIS FOR (1 - q)/(1 - q) effect
-        # adjacent_total = float(prob_remove_edge ** swapped_cut_count) / (prob_remove_edge ** old_cut_count)
+        adjacent_total = float(prob_remove_edge ** swapped_cut_count) / (prob_remove_edge ** old_cut_count)
         # adjacent_total = float(prob_remove_edge ** old_cut_count) / (prob_remove_edge ** swapped_cut_count)
-        adjacent_total = float(prob_remove_edge ** (old_cut_count - swapped_cut_count))
+        # adjacent_total = float(prob_remove_edge ** (old_cut_count - swapped_cut_count))
         # adjacent_total = 1
-        print('CUT COUNTS:', swapped_cut_count, old_cut_count)
-        print('TOTALS:', adjacent_total, boundary_total)
+        print('SWAPPED CUT COUNT: {}, OLD CUT COUNT: {}'.format(swapped_cut_count, old_cut_count))
+        print('ADJACENT TOTAL: {}, BOUNDARY_TOTAL: {}'.format(adjacent_total, boundary_total))
         accept_prob = min(1, boundary_total * adjacent_total)
         # print(accept_prob)
 
@@ -402,10 +456,18 @@ class Chain():
         # print(swapped_compact_constraint - original_compact_constraint, swapped_compact_constraint, original_compact_constraint)
         # actual_swapped_compactness = self.compute_compact_constraint(swapped_components)
         # print(swapped_compact_constraint, actual_swapped_compactness)
+        original_county_score = self.county_score
+        swapped_county_score = self.compute_county_score(swapped_graph)
         scale = 0.001
-        print(swapped_compact_constraint - original_compact_constraint)
+        compactness_difference = swapped_compact_constraint - original_compact_constraint
+        county_difference = swapped_county_score - original_county_score
+        compactness_weight = 5
+        county_weight = 10E5
+        print('compact_diff:', compactness_weight * compactness_difference)
+        print('county_diff:', county_weight * county_difference)
+        total_score = compactness_weight * compactness_difference + county_weight * county_difference
         try:
-            exponential = math.exp(-beta * (swapped_compact_constraint - original_compact_constraint))
+            exponential = math.exp(-beta * total_score)
             compact_accept_prob = min(1, exponential * boundary_total * adjacent_total)
         except OverflowError:
             # this happens when the exponential is too big
@@ -426,6 +488,7 @@ class Chain():
             self.current_graph = swapped_graph
             # update compactness score
             self.compactness = swapped_compact_constraint
+            self.county_score = swapped_county_score
             print('SWAPPED!')
         else:
             print('DID NOT SWAP :(')
@@ -507,7 +570,7 @@ def draw_graph_online(graph, pos=None, node_size=8, cmap='tab10'):
     nx.draw_networkx(graph, pos=pos, with_labels=False, node_size=node_size, node_color=list(colors.values()), cmap=cmap)
     plt.pause(1)
 
-def draw_graph_online_highlight(graph, num_colors, pos=None, node_size=8, cmap='tab10', components = []):
+def draw_graph_online_highlight(graph, num_colors, pos=None, node_size=8, cmap='tab10', components = [], edge_weights=True):
     plt.cla()
     # c = copy.copy(cm.get_cmap('tab10'))
     # c.set_under()
@@ -521,8 +584,20 @@ def draw_graph_online_highlight(graph, num_colors, pos=None, node_size=8, cmap='
                 node_color.append(highlight_cmap(-1))
             else:
                 node_color.append(highlight_cmap(colors[node]))
-    nx.draw_networkx(graph, pos=pos, with_labels=False, node_size=node_size, node_color=node_color)
-    plt.pause(0.5)
+
+    if edge_weights:
+        width = []
+        for u, v in graph.edges():
+            weight = graph[u][v]['weight']
+            if weight == 0:
+                width.append(0.5)
+            if weight == 1:
+                width.append(1)
+    else:
+        width = 1
+
+    nx.draw_networkx(graph, pos=pos, with_labels=False, node_size=node_size, node_color=node_color, width=width)
+    plt.pause(0.1)
 
 def lattice_layout(graph, N):
     nodes = graph.nodes()
@@ -537,7 +612,12 @@ if len(sys.argv) > 1:
     input_graph, num_colors, input_pos = parse_example_graph(graph_location)
     print('Colors: {}'.format(num_colors))
 else:
-    input_graph = None
+    georgia_graph, num_districts = parse_graph('data/GeorgiaGraph.json')
+    georgia_layout = parse_pos()
+
+    input_graph = georgia_graph
+    num_colors = num_districts
+    input_pos = georgia_layout
 
 # lattice = four_color_lattice(50)
 # for testing compactness constraint
@@ -551,7 +631,7 @@ else:
 # georgia_layout = parse_pos()
 # georgia_cmap = cm.get_cmap('hsv', 14)
 # draw_graph(georgia_graph, georgia_layout, cmap=georgia_cmap)
-# plot_graph(georgia_graph, pos=georgia_layout, num_iterations=0, cmap=georgia_cmap)
+# plot_graph(georgia_graph, pos=georgia_layout, num_iterations=0, cmap=georgia_cmap, node_size=15)
 # draw_graph(lattice, lattice_layout(lattice, 50), cmap='tab10')
 # draw_graph(lattice, lattice_layout(lattice, 30), cmap='winter')
 # draw_graph(circle, concentric_circle_layout(circle), cmap='winter')
@@ -563,11 +643,15 @@ else:
 # redistricting_chain = Chain(lattice, 0.5, num_colors=2, R=2)
 R = 1
 q = 0.1
-within_county_weight = 20
+within_county_weight = 1
 redistricting_chain = Chain(input_graph, q, num_colors=num_colors, R=R, input_pos=input_pos, within_county_weight=within_county_weight)
 
 # turn on matplotlib interactive mode
 plt.ion()
+
+# draw_graph_online_highlight(redistricting_chain.current_graph, num_colors, pos=input_pos, node_size=18)
+# plt.savefig('{}/{}.png'.format('output', time.time()), bbox_inches='tight', dpi=300)
+# plot_graph(redistricting_chain.current_graph, pos=input_pos, node_size=30, cmap='tab10')
 
 """
 beta_type: 'fixed | linear'
@@ -608,10 +692,11 @@ def run_simulation(redistricting_chain, num_iterations=1000, beta_type='fixed', 
 
         plot_graph(redistricting_chain.current_graph, pos=input_pos, num_iterations=num_iterations, node_size=30, cmap='tab10', num_colors=num_colors, q=q, R=R, beta_start=beta_start, beta_stop=beta_stop, within_county_weight=within_county_weight, use_weight_scaling=use_weight_scaling)
 
-num_iterations = 5000
-run_simulation(redistricting_chain, num_iterations=num_iterations, beta_type='fixed', beta=0, use_weight_scaling=False)
-# run_simulation(redistricting_chain, num_iterations=num_iterations, beta_type='linear', beta_start=0, beta_stop=1, use_weight_scaling=True)
-
+num_iterations = 1000
+run_simulation(redistricting_chain, num_iterations=num_iterations, beta_type='fixed', beta=0.00005, use_weight_scaling=False)
+# run_simulation(redistricting_chain, num_iterations=num_iterations, beta_type='linear', beta_start=0, beta_stop=1, use_weight_scaling=False)
+# draw_graph_online_highlight(redistricting_chain.current_graph, num_colors, pos=input_pos, node_size=18)
+# plt.savefig('{}/{}.png'.format('output', time.time()), bbox_inches='tight', dpi=300)
 # for i in range(num_iterations):
 #     print("Performing iteration {}.".format(i + 1))
 #     redistricting_chain.simulate_step()
