@@ -1,9 +1,9 @@
 import networkx as nx
-import fiona
-from shapely.geometry import *
 import pickle
 
 def parse_shape(location, graph=None):
+    import fiona
+    from shapely.geometry import Polygon, MultiPolygon
     fprecincts = fiona.open(location)
     nameprop = "ID"
 

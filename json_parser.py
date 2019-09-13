@@ -12,7 +12,12 @@ def parse_graph(location):
     for node in nodes:
         precint_id = node['ID']
         color = node['color']
-        neighbors = node['neighbors']
+        x = node['xCoord']
+        y = node['yCoord']
+        neighbors = {int(neighbor): weight for neighbor, weight in node['neighbors'].items()}
+        county_id = node.get('countyID')
+        if county_id == None:
+            print(precint_id)
         # num_precint_id = int(precint_id)
 
         # skip nodes belonging to district 0 --- these are bad nodes
@@ -20,8 +25,8 @@ def parse_graph(location):
             bad_nodes.append(precint_id)
             continue
 
-        graph.add_node(precint_id, color=color)
-        graph.add_edges_from([(precint_id, neighbor) for neighbor in neighbors])
+        graph.add_node(precint_id, color=color, pos=(x, y), county_id=county_id)
+        graph.add_weighted_edges_from([(precint_id, neighbor, weight) for neighbor, weight in neighbors.items()])
 
     # remove bad nodes added implicitly from being a neighbor of a good node
     graph.remove_nodes_from(bad_nodes)
