@@ -21,6 +21,22 @@ def count_votes(vote_map, color_list):
 
     return color_votes
 
+def count_precinct_level_votes_per_party(vote_map, candidate_party_map):
+    """
+    vote_map: {county: {precinct: {candidate: num_votes}}}
+    candidate_party_map: {cand_name: party}
+
+    returns {county: {precinct: {party: num_votes}}}
+    """
+    precinct_level_votes = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+    for county, precinct_cand_map in vote_map.items():
+        for precinct, cand_vote_map in precinct_cand_map.items():
+            for candidate, num_votes in cand_vote_map.items():
+                party = candidate_party_map[candidate]
+                precinct_level_votes[county][precinct][party] += num_votes
+
+    return precinct_level_votes
+
 def winning_candidates(color_votes):
     """
     color_votes: {color: {candidate: num_votes}}
@@ -36,6 +52,10 @@ def winning_candidates(color_votes):
 
 def count_votes_per_party(vote_map, color_list, candidate_party_map):
     """
+    This should be used for generalizing to the party level
+    vote_map: {county: {precinct: {candidate: num_votes}}}
+    color_list: {color: [(matched_precinct_name, county_name)]}
+    candidate_party_map: {cand_name: party}
     returns {color: {party: num_votes}}
     """
     color_votes = count_votes(vote_map, color_list)
@@ -47,6 +67,14 @@ def count_votes_per_party(vote_map, color_list, candidate_party_map):
     
     return color_wins
 
+def get_winning_parties_general(color_wins_party):
+    """
+    Returns the winning party when votes are generalized
+    color_wins_party: {color: {party: num_votes}}
+
+    returns {color: party}
+    """
+    return {color: max(party_votes.items(), key=lambda tup: tup[1])[0] for color, party_votes in color_wins_party.items()}
 
 def winning_parties(color_wins, candidate_party_map):
     return {color: candidate_party_map[candidate] for color, candidate in color_wins.items()}

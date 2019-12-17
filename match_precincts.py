@@ -1,6 +1,8 @@
 from matching import Player
 from matching.games import StableMarriage
 from fuzzywuzzy import process
+import json
+from collections import defaultdict
 
 class PrecinctMatcher():
     def __init__(self, ga_precinct_map, election_precinct_map):
@@ -74,3 +76,17 @@ class PrecinctMatcher():
         # print(county, type(self.matching[county]))
         player_from_precinct = self.ga_player_map[county][precinct]
         return self.matching[county][player_from_precinct].name
+
+    def dump(self, filename):
+        """
+        dumps the matchings as a json
+        """
+        # d is of the format {county: {shape_precinct: election_precinct}}
+        d = defaultdict(dict)
+        for county, ga_county_players in self.ga_player_map.items():
+            for shape_precinct, ga_player in ga_county_players.items():
+                election_precinct = self.matching[county][ga_player].name
+                d[county][shape_precinct] = election_precinct
+
+        with open(filename, 'w') as f:
+            json.dump(d, f)

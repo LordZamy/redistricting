@@ -14,6 +14,7 @@ from plotting import plot_graph
 from json_parser import parse_graph, parse_example_graph
 from shape_parser import parse_pos
 from color_dumper import Dumper
+from random_coloring import randomize
 
 # change figure size
 plt.rcParams["figure.figsize"] = (8, 7)
@@ -65,6 +66,7 @@ class Chain():
             min_index = np.argmin(lengths)
             component_to_drop = components[min_index]
             self.current_graph.remove_nodes_from(component_to_drop)
+        # self.last_num_connected_components = nx.algorithms.components.number_connected_components(adjacency_graph)
 
     """
     Single threaded update for county weights from outside class.
@@ -202,6 +204,9 @@ class Chain():
         if nx.algorithms.components.number_connected_components(adjacency_graph) == self.num_colors \
             and len(np.unique(list(colors.values()))) == self.num_colors:
             return graph
+        # num_connected_components = nx.algorithms.components.number_connected_components(adjacency_graph)
+        # if num_connected_components <= self.last_num_connected_components:
+        #     return graph
         return None
 
     """
@@ -403,7 +408,7 @@ class Chain():
         # draw_graph(adjacency_graph, pos=lattice_layout(adjacency_graph, 50))
         # draw_graph_online(adjacency_graph, pos=lattice_layout(lattice, 50))
         # draw_graph_online_highlight(adjacency_graph, num_colors, pos=input_pos)
-        # draw_graph_online_highlight(self.current_graph, num_colors, pos=input_pos, county_ids=nx.get_node_attributes(self.current_graph, 'county_id'))
+        draw_graph_online_highlight(self.current_graph, num_colors, pos=input_pos, county_ids=nx.get_node_attributes(self.current_graph, 'county_id'))
         # global georgia_layout
         # draw_graph_online(adjacency_graph, pos=georgia_layout)
         CP = self.connected_components(adjacency_graph)
@@ -412,7 +417,7 @@ class Chain():
         while True:
             # print('BCP', len(BCP), [len(v) for v in BCP])
             VCP = self.non_adjacent_boundary_connected_components(BCP)
-            # draw_graph_online_highlight(adjacency_graph, num_colors, pos=input_pos, components=VCP)
+            draw_graph_online_highlight(adjacency_graph, num_colors, pos=input_pos, components=VCP)
             # plt.savefig('{}/{}.png'.format('output', time.time()), bbox_inches='tight', dpi=300)
             # print('VCP', len(VCP), [len(v) for v in VCP])
             swapped_colorings = self.swap_color(VCP)
@@ -491,6 +496,8 @@ class Chain():
             # update compactness score
             self.compactness = swapped_compact_constraint
             self.county_score = swapped_county_score
+            # print(self.last_num_connected_components, len(swapped_components))
+            # self.last_num_connected_components = len(swapped_components)
             print('SWAPPED!')
         else:
             print('DID NOT SWAP :(')
@@ -564,7 +571,7 @@ def draw_graph(graph, pos=None, node_size=8, cmap='tab10'):
     nx.draw_networkx(graph, pos=pos, with_labels=False, node_size=node_size, node_color=list(colors.values()), cmap=cmap)
     plt.show()
 
-highlight_cmap = copy.deepcopy(cm.get_cmap('tab10'))
+highlight_cmap = copy.deepcopy(cm.get_cmap('tab20'))
 highlight_cmap.set_under()
 def draw_graph_online(graph, pos=None, node_size=8, cmap='tab10'):
     plt.cla()
@@ -572,7 +579,7 @@ def draw_graph_online(graph, pos=None, node_size=8, cmap='tab10'):
     nx.draw_networkx(graph, pos=pos, with_labels=False, node_size=node_size, node_color=list(colors.values()), cmap=cmap)
     plt.pause(1)
 
-def draw_graph_online_highlight(graph, num_colors, pos=None, node_size=8, cmap='tab10', components = [], edge_weights=True, county_ids={}):
+def draw_graph_online_highlight(graph, num_colors, pos=None, node_size=8, cmap='tab20', components = [], edge_weights=True, county_ids=None):
     plt.cla()
     # c = copy.copy(cm.get_cmap('tab10'))
     # c.set_under()
@@ -582,7 +589,7 @@ def draw_graph_online_highlight(graph, num_colors, pos=None, node_size=8, cmap='
     global highlight_cmap
     for node in graph.nodes():
             # index it after the other colors
-            if node in vertices or county_ids[node] == None:
+            if node in vertices or (county_ids != None and county_ids[node] == None):
                 node_color.append(highlight_cmap(-1))
             else:
                 node_color.append(highlight_cmap(colors[node]))
@@ -617,6 +624,9 @@ else:
     georgia_graph, num_districts = parse_graph('data/GeorgiaGraph.json')
     georgia_layout = parse_pos()
 
+    # randomize the coloring
+    # randomize(georgia_graph, num_districts)
+
     input_graph = georgia_graph
     num_colors = num_districts
     input_pos = georgia_layout
@@ -643,10 +653,10 @@ else:
 # redistricting_chain = Chain(lattice, 0.07, R=2)
 # redistricting_chain = Chain(georgia_graph, 0.07, num_colors=num_districts, R=5)
 # redistricting_chain = Chain(lattice, 0.5, num_colors=2, R=2)
-R = 1
-q = 0.1
-within_county_weight = 10
-# redistricting_chain = Chain(input_graph, q, num_colors=num_colors, R=R, input_pos=input_pos, within_county_weight=within_county_weight)
+R = 2
+q = 0.5
+within_county_weight = 1
+redistricting_chain = Chain(input_graph, q, num_colors=num_colors, R=R, input_pos=input_pos, within_county_weight=within_county_weight)
 
 # turn on matplotlib interactive mode
 plt.ion()
@@ -687,16 +697,16 @@ def run_simulation(redistricting_chain, num_iterations=1000, beta_type='fixed', 
             if use_weight_scaling:
                 current_weight = weights[i]
                 redistricting_chain.update_within_county_weight(current_weight)
-                print("Performing iteration {} with beta {} and weight.".format(i + 1, current_beta, current_weight))
+                print("Performing iteration {} with beta {} and weight {}.".format(i + 1, current_beta, current_weight))
             else:
                 print("Performing iteration {} with beta {}.".format(i + 1, current_beta))
             redistricting_chain.simulate_step(current_beta)
 
         plot_graph(redistricting_chain.current_graph, pos=input_pos, num_iterations=num_iterations, node_size=30, cmap='tab10', num_colors=num_colors, q=q, R=R, beta_start=beta_start, beta_stop=beta_stop, within_county_weight=within_county_weight, use_weight_scaling=use_weight_scaling)
 
-num_iterations = 100
+num_iterations = 10000
 # run_simulation(redistricting_chain, num_iterations=num_iterations, beta_type='fixed', beta=0.00005, use_weight_scaling=False)
-# run_simulation(redistricting_chain, num_iterations=num_iterations, beta_type='linear', beta_start=0, beta_stop=1, use_weight_scaling=False)
+run_simulation(redistricting_chain, num_iterations=num_iterations, beta_type='linear', beta_start=0.000005, beta_stop=50, use_weight_scaling=False)
 # draw_graph_online_highlight(redistricting_chain.current_graph, num_colors, pos=input_pos, node_size=18)
 # plt.savefig('{}/{}.png'.format('output', time.time()), bbox_inches='tight', dpi=300)
 # for i in range(num_iterations):
@@ -718,8 +728,8 @@ def sample_several(n=100):
     dumper = Dumper()
     for i in range(n):
         redistricting_chain = Chain(input_graph.copy(), q, num_colors=num_colors, R=R, input_pos=input_pos, within_county_weight=within_county_weight)
-        run_simulation(redistricting_chain, num_iterations=num_iterations, beta_type='fixed', beta=0.00005, use_weight_scaling=False)
+        run_simulation(redistricting_chain, num_iterations=num_iterations, beta_type='linear', beta_start=0.00005, beta_stop=5, use_weight_scaling=False)
         dumper.add(redistricting_chain.current_graph)
     dumper.dump('data/test4.json', num_iterations, 'fixed', 0.00005, False)
 
-sample_several(1)
+# sample_several(1)
